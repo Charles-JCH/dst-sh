@@ -8,16 +8,30 @@
 
 # 全局只读常量
 readonly DST_ROOT="$HOME/dst"
+readonly DST_BIN="$DST_ROOT/bin/dontstarve_dedicated_server_nullrenderer"
 readonly STEAMCMD_ROOT="$HOME/steamcmd"
 readonly KLEI_ROOT="$HOME/.klei/DoNotStarveTogether"
 readonly DST_PORTS="10888 10999 10998"
 readonly GITHUB_REPO_URL="https://github.com/Charles-JCH/dst.git"
 readonly DEFAULT_TOKEN="pds-g^KU_XKeqpZXq^rtM08d2qtiy34ZRzi1P2wTLmrzTK3AcmnnMRePnXDjo="
 
+# 颜色定义
+readonly RED="\033[1;31m"
+readonly GREEN="\033[1;32m"
+readonly YELLOW="\033[1;33m"
+readonly BLUE="\033[1;34m"
+readonly RESET="\033[0m"
+
 # 日志函数
-log() { echo -e "\033[1;32m>>> [系统]\033[0m $1"; }
-warn() { echo -e "\033[1;33m>>> [警告]\033[0m $1"; }
-error() { echo -e "\033[1;31m>>> [错误]\033[0m $1"; }
+log() { echo -e "${GREEN}>>> [系统]${RESET} $1"; }
+warn() { echo -e "${YELLOW}>>> [警告]${RESET} $1"; }
+error() { echo -e "${RED}>>> [错误]${RESET} $1"; }
+
+# 打印颜色字体
+print_red() { echo -e "${RED}$1${RESET}"; }
+print_green() { echo -e "${GREEN}$1${RESET}"; }
+print_yellow() { echo -e "${YELLOW}$1${RESET}"; }
+print_blue() { echo -e "${BLUE}$1${RESET}"; }
 
 # 防火墙配置
 configure_firewall() {
@@ -25,27 +39,69 @@ configure_firewall() {
     
 	# 检测是否安装 ufw
 	if ! command -v ufw >/dev/null 2>&1; then
-		warn "未检测到 ufw 防火墙工具，跳过自动配置。"
+		warn "未检测到 ufw 防火墙，跳过自动配置。"
 		warn "请手动确保 UDP 端口开放: $DST_PORTS"
 		return 0 
 	fi
 	
 	# 尝试激活 ufw
-	if ! sudo ufw status | grep -q "Status: active"; then
-		log "防火墙 ufw 未启用，如连接失败请执行 sudo ufw enable"
+	if ! ufw status | grep -q "Status: active"; then
+		log "防火墙 ufw 未启用，如连接失败请执行 ufw enable"
 	fi
 	
 	# 开放 SSH 端口
 	log "正在开放 SSH 端口 22/tcp"
-	sudo ufw allow 22/tcp >/dev/null 2>&1
+	ufw allow 22/tcp >/dev/null 2>&1
 	
 	# 开放 DST 所需 UDP 端口
 	for port in $DST_PORTS; do
 		log "正在开放端口 $port/udp"
-		sudo ufw allow "$port"/udp >/dev/null 2>&1
+		ufw allow "$port"/udp >/dev/null 2>&1
 	done
 	
 	log "防火墙端口配置已更新"
+}
+
+# 重试机制
+update_dst_with_retry() {
+    local max_attempts=5
+    local attempt=1
+    local success=0
+
+    # 确保 SteamCMD 存在
+    if [ ! -f "$STEAMCMD_ROOT/steamcmd.sh" ]; then
+        error "SteamCMD 未找到，无法更新！"
+        return 1
+    fi
+
+    while [ $attempt -le $max_attempts ]; do
+        log "正在下载/更新 DST 服务端 (第 $attempt/$max_attempts 次尝试)..."
+        
+        # 执行下载命令
+        "$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_update 343050 validate +quit
+        
+        # 校验是否下载成功
+        if [ -f "$DST_BIN" ]; then
+            log "DST 服务端校验成功！"
+            
+            # 修复库文件
+            mkdir -p "$DST_ROOT/bin/lib32/"
+            cp -f "$DST_ROOT/steamclient.so" "$DST_ROOT/bin/lib32/"
+            
+            success=1
+            break
+        else
+            warn "连接 Steam 服务器超时，5秒后重试"
+            sleep 5
+            ((attempt++))
+        fi
+    done
+
+    if [ $success -eq 0 ]; then
+        error "下载失败，请检查网络连接 (是否能连接 Steam 服务器)。"
+        return 1
+    fi
+    return 0
 }
 
 # 启动状态检测
@@ -79,39 +135,39 @@ wait_for_startup() {
     fi
 	
     log "日志已建立，正在等待世界生成..."
-	tail -n +1 -f "$LOG_FILE" | while read line; do
-        echo "$line"
-        
-        if echo "$line" | grep -q "Sim paused"; then
-             log "服务器启动成功 (Sim paused)！"
-             pkill -P $$ tail
-             exit 0
-        fi
-    done
+	while read line; do
+		echo "$line"
+		
+		if echo "$line" | grep -q "is now connected"; then
+			 log "服务器启动成功！"
+			 pkill -P $$ tail
+			 exit 0
+		fi
+	done < <(tail -n +1 -f "$LOG_FILE")
 }
 
 # 环境安装
 install_env() {
 	# 检测是否已有 DST 环境
-	if [ -f "$DST_ROOT/bin/dontstarve_dedicated_server_nullrenderer" ]; then
+	if [ -f "$DST_BIN" ]; then
         return 0
     fi
 	
 	log "检测到新环境，开始自动部署..."
 	log "[1/5] 安装系统依赖..."
-	sudo mkdir -p /etc/needrestart
+	mkdir -p /etc/needrestart
 	if [ -d "/etc/needrestart" ]; then
-        sudo tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
+        tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
 $nrconf{restart} = 'a';
 $nrconf{kernelhints} = -1;
 $nrconf{verbosity} = 0;
 EOF
     fi
 	
-    sudo DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y >/dev/null 2>&1
-    sudo DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386 >/dev/null 2>&1
-    sudo DEBIAN_FRONTEND=noninteractive apt update >/dev/null 2>&1
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386 >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt update >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw >/dev/null 2>&1
 	
 	configure_firewall
 	
@@ -124,7 +180,9 @@ EOF
 	
 	# 安装 DST
 	log "[3/5] 下载/更新 DST 服务端..."
-	"$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_update 343050 validate +quit
+	if ! update_dst_with_retry; then
+        exit 1
+    fi
 	
 	# 修复库文件
 	mkdir -p "$DST_ROOT/bin/lib32/"
@@ -141,9 +199,7 @@ EOF
 	
 	# 写入 token
 	log "[5/5] 写入 Cluster Token..."
-	if [ ! -f "$CLUSTER_DIR/cluster_token.txt" ]; then
-        echo "$DEFAULT_TOKEN" > "$CLUSTER_DIR/cluster_token.txt"
-    fi
+    echo "$DEFAULT_TOKEN" > "$CLUSTER_DIR/cluster_token.txt"
 	
 	log "环境部署完成！"
 }
@@ -226,15 +282,17 @@ update_server() {
     fi
 	
 	log "正在更新 DST 服务端..."
-	"$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_update 343050 validate +quit
-	
-	log "更新完成"
+	if update_dst_with_retry; then
+        log "更新完成"
+    else
+        return 1
+    fi
 }
 
 show_menu() {
 	clear
     echo "========================="
-    log "   DST 服务器管理脚本"
+	print_green "   DST 服务器管理脚本"
     echo "========================="
     echo "1. 启动服务器"
     echo "2. 停止服务器"
