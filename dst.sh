@@ -154,7 +154,7 @@ install_env() {
     fi
 	
 	log "检测到新环境，开始自动部署..."
-	log "[1/5] 安装系统依赖..."
+	log "[1/3] 安装系统依赖..."
 	mkdir -p /etc/needrestart
 	if [ -d "/etc/needrestart" ]; then
         tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
@@ -172,14 +172,14 @@ EOF
 	configure_firewall
 	
 	# 安装 SteamCMD
-	log "[2/5] 安装 SteamCMD..."
+	log "[2/3] 安装 SteamCMD..."
 	mkdir -p "$STEAMCMD_ROOT" && cd "$STEAMCMD_ROOT" || exit
     if [ ! -f "steamcmd.sh" ]; then
         wget -qO- https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxvf - >/dev/null 2>&1
     fi
 	
 	# 安装 DST
-	log "[3/5] 下载/更新 DST 服务端..."
+	log "[3/3] 下载/更新 DST 服务端..."
 	if ! update_dst_with_retry; then
         exit 1
     fi
@@ -188,27 +188,30 @@ EOF
 	mkdir -p "$DST_ROOT/bin/lib32/"
 	cp -f "$DST_ROOT/steamclient.so" "$DST_ROOT/bin/lib32/"
 	
-	# 拉取存档
-	log "[4/5] 拉取默认存档..."
-	mkdir -p "$KLEI_ROOT"
-	local CLUSTER_DIR="$KLEI_ROOT/Cluster_1"
-	if [ ! -d "$CLUSTER_DIR" ]; then
-        git clone --depth 1 "$GITHUB_REPO_URL" "$CLUSTER_DIR"
-        rm -rf "$CLUSTER_DIR/.git"
-    fi
-	
-	# 写入 token
-	log "[5/5] 写入 Cluster Token..."
-    echo "$DEFAULT_TOKEN" > "$CLUSTER_DIR/cluster_token.txt"
-	
 	log "环境部署完成！"
 }
 
 # 启动服务器
 start_server() {
 	local SLOT=${1:-1}
+	local CUSTOM_TOKEN=$2
 	local LOG_FILE="$HOME/result${SLOT}.log"
 	
+	local CLUSTER_DIR="$KLEI_ROOT/Cluster_${SLOT}"
+	# 拉取存档
+	if [ ! -d "$CLUSTER_DIR" ]; then
+		log "检测到存档 Cluster_${SLOT} 不存在，拉取默认存档..."
+		mkdir -p "$KLEI_ROOT"
+        git clone --depth 1 "$GITHUB_REPO_URL" "$CLUSTER_DIR"
+        rm -rf "$CLUSTER_DIR/.git"
+    fi
+	
+	local TOKEN_TO_USE="${CUSTOM_TOKEN:-$DEFAULT_TOKEN}"
+	# 写入 token
+	log "写入 Cluster Token..."
+    echo "$TOKEN_TO_USE" > "$CLUSTER_DIR/cluster_token.txt"
+	
+	# 检测进程是否已运行
 	if screen -list | grep -q "master${SLOT}"; then
         warn "Master${SLOT} 已运行，请勿重复启动"
         return 0
@@ -315,18 +318,18 @@ show_menu() {
 }
 
 # 主处理
-install_env
-
 if [ $# -gt 0 ]; then
     # === 自动化模式 ===
     case "$1" in
-        "start") start_server "${2:-1}" ;;
+		"deploy") install_env ;;
+        "start") start_server "${2:-1}" "$3" ;;
         "stop") stop_server "${2:-1}" ;;
         "update") update_server ;;
-        *) echo "Usage: ./dst.sh [start|stop|update] [1-5]"; exit 1 ;;
+        *) echo "Usage: ./dst.sh [deploy|start|stop|update] [1-5]"; exit 1 ;;
     esac
 else
     # === 交互模式 ===
+	install_env
     while true; do
         show_menu
     done
