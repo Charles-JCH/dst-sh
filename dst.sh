@@ -3,17 +3,12 @@
 # ========================================
 #   DST 饥荒联机版 服务器一键管理脚本
 #   Author: Charles
-#   功能: 安装 / 启动 / 停止 / 更新
+#   功能: 部署 / 启动 / 停止 / 更新
 # ========================================
 
-# 全局只读常量
-readonly DST_ROOT="$HOME/dst"
-readonly DST_BIN="$DST_ROOT/bin/dontstarve_dedicated_server_nullrenderer"
-readonly STEAMCMD_ROOT="$HOME/steamcmd"
-readonly KLEI_ROOT="$HOME/.klei/DoNotStarveTogether"
-readonly DST_PORTS="10888 10999 10998"
-readonly GITHUB_REPO_URL="https://github.com/Charles-JCH/dst.git"
-readonly DEFAULT_TOKEN="pds-g^KU_XKeqpZXq^rtM08d2qtiy34ZRzi1P2wTLmrzTK3AcmnnMRePnXDjo="
+# 定义charles用户及密码
+readonly TARGET_USER="charles"
+readonly TARGET_PASS="123456"
 
 # 颜色定义
 readonly RED="\033[1;31m"
@@ -33,6 +28,56 @@ print_green() { echo -e "${GREEN}$1${RESET}"; }
 print_yellow() { echo -e "${YELLOW}$1${RESET}"; }
 print_blue() { echo -e "${BLUE}$1${RESET}"; }
 
+# 如果当前是 root，则创建用户并切换
+if [ "$(id -u)" -eq 0 ]; then
+    log "检测到当前为 Root 用户，正在切换至普通用户 '$TARGET_USER'..."
+
+    # 创建用户 (如果不存在)
+    if ! id "$TARGET_USER" >/dev/null 2>&1; then
+        log "正在创建用户: $TARGET_USER"
+        useradd -m -s /bin/bash "$TARGET_USER"
+        echo "$TARGET_USER:$TARGET_PASS" | chpasswd
+        log "用户密码已设置为: $TARGET_PASS"
+    fi
+
+    # 配置 sudo 免密权限
+    if [ ! -f "/etc/sudoers.d/$TARGET_USER" ]; then
+        log "配置 sudo 免密权限..."
+        # 确保 sudo 已安装
+		if ! command -v sudo >/dev/null 2>&1; then
+             apt-get update >/dev/null 2>&1 && apt-get install -y sudo >/dev/null 2>&1
+        fi
+        echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$TARGET_USER"
+        chmod 0440 "/etc/sudoers.d/$TARGET_USER"
+    fi
+
+    # 将当前脚本复制到 charles 的目录下，确保有权访问
+    SCRIPT_NAME=$(basename "$0")
+    TARGET_SCRIPT="/home/$TARGET_USER/$SCRIPT_NAME"
+    
+    cp "$0" "$TARGET_SCRIPT"
+    chown "$TARGET_USER:$TARGET_USER" "$TARGET_SCRIPT"
+    chmod +x "$TARGET_SCRIPT"
+
+    log "切换身份并重新执行命令..."
+	
+    # 使用 su - 切换环境，并透传所有参数 ($@)
+    exec su - "$TARGET_USER" -c "bash $TARGET_SCRIPT $*"
+fi
+
+# =======================================================
+#  注意：以下代码均在 'charles' 用户下执行 (已拥有 sudo 权限)
+# =======================================================
+
+# 全局只读常量
+readonly DST_ROOT="$HOME/dst"
+readonly DST_BIN="$DST_ROOT/bin/dontstarve_dedicated_server_nullrenderer"
+readonly STEAMCMD_ROOT="$HOME/steamcmd"
+readonly KLEI_ROOT="$HOME/.klei/DoNotStarveTogether"
+readonly DST_PORTS="10888 10999 10998"
+readonly GITHUB_REPO_URL="https://github.com/Charles-JCH/dst.git"
+readonly DEFAULT_TOKEN="pds-g^KU_XKeqpZXq^rtM08d2qtiy34ZRzi1P2wTLmrzTK3AcmnnMRePnXDjo="
+
 # 防火墙配置
 configure_firewall() {
     log "正在检测防火墙配置..."
@@ -45,18 +90,18 @@ configure_firewall() {
 	fi
 	
 	# 尝试激活 ufw
-	if ! ufw status | grep -q "Status: active"; then
-		log "防火墙 ufw 未启用，如连接失败请执行 ufw enable"
+	if ! sudo ufw status | grep -q "Status: active"; then
+		log "防火墙 ufw 未启用，如连接失败请执行 sudo ufw enable"
 	fi
 	
 	# 开放 SSH 端口
 	log "正在开放 SSH 端口 22/tcp"
-	ufw allow 22/tcp >/dev/null 2>&1
+	sudo ufw allow 22/tcp >/dev/null 2>&1
 	
 	# 开放 DST 所需 UDP 端口
 	for port in $DST_PORTS; do
 		log "正在开放端口 $port/udp"
-		ufw allow "$port"/udp >/dev/null 2>&1
+		sudo ufw allow "$port"/udp >/dev/null 2>&1
 	done
 	
 	log "防火墙端口配置已更新"
@@ -155,19 +200,19 @@ install_env() {
 	
 	log "检测到新环境，开始自动部署..."
 	log "[1/3] 安装系统依赖..."
-	mkdir -p /etc/needrestart
+	sudo mkdir -p /etc/needrestart
 	if [ -d "/etc/needrestart" ]; then
-        tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
+        sudo tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
 $nrconf{restart} = 'a';
 $nrconf{kernelhints} = -1;
 $nrconf{verbosity} = 0;
 EOF
     fi
 	
-    DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386 >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt update >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw >/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y >/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386 >/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive apt update >/dev/null 2>&1
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw >/dev/null 2>&1
 	
 	configure_firewall
 	
