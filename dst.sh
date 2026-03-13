@@ -149,7 +149,7 @@ install_env() {
     # 已部署则跳过
     [[ -f "$DST_BIN" ]] && return 0
 
-    local deploy_log="$HOME/deploy_dst.log"
+    local deploy_log="$HOME/deploy.log"
     : > "$deploy_log"
     exec > >(tee -a "$deploy_log") 2>&1
 
@@ -265,7 +265,7 @@ wait_for_startup() {
 start_server() {
     local slot="${1:-1}"
     local token="${2:-$DEFAULT_TOKEN}"
-    local log_file="$HOME/result${slot}.log"
+    local log_file="$HOME/cluster${slot}.log"
     local dst_bin_dir="$DST_ROOT/bin"
 
     # 准备存档 & token
