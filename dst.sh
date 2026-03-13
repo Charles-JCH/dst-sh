@@ -70,7 +70,9 @@ bootstrap_user() {
     chmod +x "$target_script"
 
     log "切换身份，重新执行..."
-    exec su - "$TARGET_USER" -c "bash $target_script $*"
+    local safe_args
+    safe_args=$(printf '%q ' "$@")
+    exec su - "$TARGET_USER" -c "bash $target_script $safe_args"
 }
 
 # ============================================================
