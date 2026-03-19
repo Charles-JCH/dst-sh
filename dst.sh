@@ -188,9 +188,10 @@ EOF
 # 存档管理
 # ============================================================
 
-# 若存档目录不存在，从远端仓库拉取默认存档
-ensure_cluster() {
+# 初始化存档
+init_cluster() {
     local slot="$1"
+    local token="${2:-$DEFAULT_TOKEN}"
     local cluster_dir="$KLEI_ROOT/Cluster_${slot}"
 
     if [[ ! -d "$cluster_dir" ]]; then
@@ -200,15 +201,11 @@ ensure_cluster() {
         rm -rf "$cluster_dir/.git"
     fi
 
-    echo "$cluster_dir"
-}
-
-# 写入 cluster token
-write_token() {
-    local cluster_dir="$1"
-    local token="$2"
     log "写入 Cluster Token..."
     echo "$token" > "$cluster_dir/cluster_token.txt"
+
+    echo "$cluster_dir"
+    log "存档 Cluster_${slot} 初始化完成！"
 }
 
 # ============================================================
@@ -263,17 +260,17 @@ wait_for_startup() {
 # ============================================================
 
 # 启动服务器
-# 用法: start_server [1-5] [token]
+# 用法: start_server [1-5]
 start_server() {
     local slot="${1:-1}"
-    local token="${2:-$DEFAULT_TOKEN}"
     local log_file="$HOME/cluster${slot}.log"
     local dst_bin_dir="$DST_ROOT/bin"
+    local cluster_dir="$KLEI_ROOT/Cluster_${slot}"
 
-    # 准备存档 & token
-    local cluster_dir
-    cluster_dir=$(ensure_cluster "$slot")
-    write_token "$cluster_dir" "$token"
+    # 存档初始化校验
+    if [[ ! -d "$cluster_dir" ]]; then
+        die "存档 Cluster_${slot} 不存在！请先执行 init 命令初始化存档。"
+    fi
 
     # 避免重复启动
     if is_running "master${slot}"; then
@@ -364,20 +361,22 @@ update_server() {
 show_menu() {
     clear
     echo "================================="
-    echo -e "${GREEN}     DST 饥荒服务器管理脚本${RESET}"
+    echo -e "${GREEN}     DST 饥荒服务器管理面板${RESET}"
     echo "================================="
-    echo "  1. 启动服务器"
-    echo "  2. 停止服务器"
-    echo "  3. 更新服务端"
-    echo "  4. 退出"
+    echo "  1. 初始化存档"
+    echo "  2. 启动服务器"
+    echo "  3. 停止服务器"
+    echo "  4. 更新服务端"
+    echo "  5. 退出"
     echo "---------------------------------"
-    read -rp "请选择 [1-4]: " choice
+    read -rp "请选择 [1-5]: " choice
 
     case "$choice" in
-        1) start_server 1 ;;
-        2) stop_server  1 ;;
-        3) update_server  ;;
-        4) exit 0 ;;
+        1) init_cluster 1 ;;
+        2) start_server 1 ;;
+        3) stop_server  1 ;;
+        4) update_server  ;;
+        5) exit 0 ;;
         *) warn "无效选项，请重新输入。" ;;
     esac
 
@@ -399,11 +398,12 @@ main() {
         # ── 自动化模式（CI / 脚本调用）──────────────────────
         case "$1" in
             deploy) install_env ;;
-            start)  start_server  "${2:-1}" "${3:-}" ;;
-            stop)   stop_server   "${2:-1}" ;;
+            init)   init_cluster "${2:-1}" "${3:-}" ;;
+            start)  start_server "${2:-1}" ;;
+            stop)   stop_server  "${2:-1}" ;;
             update) update_server ;;
             *)
-                echo "用法: $0 [deploy|start|stop|update] [1-5] [token]"
+                echo "用法: $0 [deploy|init|start|stop|update] [1-5] [token]"
                 exit 1
                 ;;
         esac
