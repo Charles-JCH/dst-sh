@@ -348,15 +348,44 @@ stop_server() {
     log "Cluster_${slot} 已停止。"
 }
 
-# 更新服务端（需先停止所有服务器）
+# 检查游戏版本并自动更新
 update_server() {
     if screen -list | grep -q "master"; then
         die "请先停止所有运行中的服务器再执行更新。"
     fi
 
-    log "更新 DST 服务端..."
-    update_dst_with_retry
-    log "更新完成。"
+    log "正在检查 DST 服务端是否有新版本..."
+
+    # 获取本地 Build ID
+    local manifest_file="$DST_ROOT/steamapps/appmanifest_343050.acf"
+    local local_build_id="0"
+    if [[ -f "$manifest_file" ]]; then
+        local_build_id=$(grep -i '"buildid"' "$manifest_file" | grep -oP '"\K[0-9]+(?=")' | head -n 1)
+        local_build_id="${local_build_id:-0}"
+    fi
+
+    # 获取远程最新 Build ID
+    local remote_build_id
+    remote_build_id=$(curl -s --connect-timeout 5 "https://api.steamcmd.net/v1/info/343050" | grep -oP '"public":\s*\{[^}]*\}' | grep -oP '"buildid"\s*:\s*"\K[0-9]+' | head -n 1)
+    remote_build_id="${remote_build_id:-0}"
+
+    # 校验远程结果合法性
+    if ! [[ "$remote_build_id" =~ ^[0-9]+$ && "$remote_build_id" != "0" ]]; then
+        warn "获取 Steam 最新版本信息失败，将强制执行更新校验流程..."
+        update_dst_with_retry
+        log "强制更新校验完成。"
+        return
+    fi
+
+    # 对比版本
+    if [[ "$local_build_id" == "$remote_build_id" ]]; then
+        log "当前已是最新版本 (Build ID: ${local_build_id})，无需更新！"
+    else
+        log "发现新版本！(本地: ${local_build_id} -> 最新: ${remote_build_id})"
+        log "开始下载更新..."
+        update_dst_with_retry
+        log "更新完成！"
+    fi
 }
 
 # ============================================================
@@ -370,7 +399,7 @@ show_menu() {
     echo "  1. 初始化存档"
     echo "  2. 启动服务器"
     echo "  3. 停止服务器"
-    echo "  4. 更新服务端"
+    echo "  4. 检查更新"
     echo "  5. 退出"
     echo "---------------------------------"
     read -rp "请选择 [1-5]: " choice
