@@ -56,7 +56,7 @@ bootstrap_user() {
     local sudoers_file="/etc/sudoers.d/$TARGET_USER"
     if [[ ! -f "$sudoers_file" ]]; then
         log "配置 sudo 免密权限..."
-        command -v sudo &>/dev/null || apt-get install -y sudo &>/dev/null
+        command -v sudo &>/dev/null || apt-get install -y sudo
         echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > "$sudoers_file"
         chmod 0440 "$sudoers_file"
     fi
@@ -92,12 +92,12 @@ configure_firewall() {
     fi
 
     # 放行 SSH
-    sudo ufw allow 22/tcp &>/dev/null
+    sudo ufw allow 22/tcp
     log "已放行端口 22/tcp (SSH)"
 
     # 放行 DST 端口
     for port in $DST_PORTS; do
-        sudo ufw allow "$port/udp" &>/dev/null
+        sudo ufw allow "$port/udp"
         log "已放行端口 $port/udp"
     done
 }
@@ -110,7 +110,7 @@ install_steamcmd() {
 
     log "安装 SteamCMD..."
     mkdir -p "$STEAMCMD_ROOT"
-    wget -qO- https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -zxf - -C "$STEAMCMD_ROOT" &>/dev/null
+    wget -qO- https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -zxf - -C "$STEAMCMD_ROOT"
 }
 
 # ============================================================
@@ -123,7 +123,7 @@ update_dst_with_retry() {
     for ((attempt = 1; attempt <= max_attempts; attempt++)); do
         log "下载/更新 DST 服务端 (${attempt}/${max_attempts})..."
 
-        "$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_update 343050 validate +quit
+        "$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_info_update 1 +app_update 343050 validate +quit
 
         if [[ -f "$DST_BIN" ]]; then
             log "DST 服务端校验成功！"
@@ -132,6 +132,10 @@ update_dst_with_retry() {
         fi
 
         warn "连接 Steam 超时，5 秒后重试..."
+        
+        log "清理 SteamCMD 损坏的缓存目录..."
+        rm -rf "$STEAMCMD_ROOT/appcache"
+        
         sleep 5
     done
 
@@ -166,10 +170,10 @@ $nrconf{kernelhints} = -1;
 $nrconf{verbosity} = 0;
 EOF
 
-    sudo DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y &>/dev/null
-    sudo DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386 &>/dev/null
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update &>/dev/null
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw &>/dev/null
+    sudo DEBIAN_FRONTEND=noninteractive add-apt-repository multiverse -y
+    sudo DEBIAN_FRONTEND=noninteractive dpkg --add-architecture i386
+    sudo DEBIAN_FRONTEND=noninteractive apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libstdc++6:i386 libgcc1:i386 libcurl4-gnutls-dev:i386 screen git ufw
 
     configure_firewall
 
