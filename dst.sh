@@ -123,7 +123,7 @@ update_dst_with_retry() {
     for ((attempt = 1; attempt <= max_attempts; attempt++)); do
         log "下载/更新 DST 服务端 (${attempt}/${max_attempts})..."
 
-        "$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_info_update 1 +app_update 343050 validate +quit
+        "$STEAMCMD_ROOT/steamcmd.sh" +force_install_dir "$DST_ROOT" +login anonymous +app_info_update 1 +app_update 343050 validate +quit || true
 
         if [[ -f "$DST_BIN" ]]; then
             log "DST 服务端校验成功！"
