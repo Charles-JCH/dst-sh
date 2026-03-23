@@ -350,7 +350,7 @@ stop_server() {
 
 # 检查游戏版本并自动更新
 update_server() {
-    if screen -list | grep -q "master"; then
+    if is_running "master"; then
         warn "请先停止所有运行中的服务器再执行更新。"
         return 0
     fi
