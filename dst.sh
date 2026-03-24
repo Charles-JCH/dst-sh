@@ -263,7 +263,7 @@ wait_for_startup() {
 # 对外命令：启动 / 停止 / 更新
 # ============================================================
 
-# 启动服务器
+# 启动服务器存档
 # 用法: start_server [1-5]
 start_server() {
     local slot="${1:-1}"
@@ -307,7 +307,7 @@ start_server() {
     wait_for_startup "$log_file" "master${slot}"
 }
 
-# 停止服务器
+# 停止服务器存档
 # 用法: stop_server [1-5]
 stop_server() {
     local slot="${1:-1}"
@@ -389,6 +389,35 @@ update_server() {
     fi
 }
 
+# 删除服务器存档
+# 用法: delete_server [1-5]
+delete_server() {
+    local slot="${1:-1}"
+    local cluster_dir="$KLEI_ROOT/Cluster_${slot}"
+    local log_file="$HOME/cluster${slot}.log"
+
+    log "准备删除存档 Cluster_${slot} ..."
+
+    # 如果存档正在运行，强制停止
+    if is_running "master${slot}"; then
+        warn "检测到存档仍在运行，正在强制停止..."
+        stop_server "$slot"
+    fi
+
+    # 删除存档目录
+    if [[ -d "$cluster_dir" ]]; then
+        rm -rf "$cluster_dir"
+        log "已删除存档物理文件: $cluster_dir"
+    else
+        warn "存档目录不存在，无需删除。"
+    fi
+
+    # 清理日志文件
+    [[ -f "$log_file" ]] && rm -f "$log_file"
+
+    log "存档 Cluster_${slot} 已删除！"
+}
+
 # ============================================================
 # 交互菜单
 # ============================================================
@@ -401,16 +430,18 @@ show_menu() {
     echo "  2. 启动服务器"
     echo "  3. 停止服务器"
     echo "  4. 检查更新"
-    echo "  5. 退出"
+    echo "  5. 删除服务器存档"
+    echo "  6. 退出"
     echo "---------------------------------"
-    read -rp "请选择 [1-5]: " choice
+    read -rp "请选择 [1-6]: " choice
 
     case "$choice" in
-        1) init_cluster 1 ;;
-        2) start_server 1 ;;
-        3) stop_server  1 ;;
-        4) update_server  ;;
-        5) exit 0 ;;
+        1) init_cluster  1 ;;
+        2) start_server  1 ;;
+        3) stop_server   1 ;;
+        4) update_server   ;;
+        5) delete_server 1 ;;
+        6) exit 0 ;;
         *) warn "无效选项，请重新输入。" ;;
     esac
 
@@ -432,12 +463,13 @@ main() {
         # ── 自动化模式（CI / 脚本调用）──────────────────────
         case "$1" in
             deploy) install_env ;;
-            init)   init_cluster "${2:-1}" "${3:-}" ;;
-            start)  start_server "${2:-1}" ;;
-            stop)   stop_server  "${2:-1}" ;;
+            init)   init_cluster  "${2:-1}" "${3:-}" ;;
+            start)  start_server  "${2:-1}" ;;
+            stop)   stop_server   "${2:-1}" ;;
             update) update_server ;;
+            delete) delete_server "${2:-1}" ;;
             *)
-                echo "用法: $0 [deploy|init|start|stop|update] [1-5] [token]"
+                echo "用法: $0 [deploy|init|start|stop|update|delete] [1-5] [token]"
                 exit 1
                 ;;
         esac
