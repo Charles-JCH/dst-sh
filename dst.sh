@@ -40,7 +40,7 @@ die()   { error "$*"; exit 1; }
 # ============================================================
 check_os_version() {
     info "检查系统版本"
-    
+
     if [[ ! -f /etc/os-release ]]; then
         die "无法识别当前系统: /etc/os-release 不存在"
     fi
@@ -135,13 +135,13 @@ install_steamcmd() {
     local max_attempts=3
     for (( i = 1; i <= max_attempts; i++ )); do
         info "下载 SteamCMD ($i/${max_attempts})..."
-        
+
         # wget -c 支持断点续传，防止每次都从头下
         if wget -c -O "$tmp_file" -qq "$STEAMCMD_TAR_URL"; then
             success=1
             break
         fi
-        
+
         warn "连接 Steam 超时，3 秒后重试..."
         sleep 3
     done
@@ -180,10 +180,10 @@ update_dst_with_retry() {
         fi
 
         warn "连接 Steam 超时，5 秒后重试..."
-        
+
         info "清理 SteamCMD 缓存目录"
         rm -rf "$STEAMCMD_DIR/appcache"
-        
+
         sleep 5
     done
 
@@ -209,7 +209,7 @@ install_env() {
 
     # 清除旧日志信息
     : > "$deploy_log"
-    
+
     exec > >(tee -a "$deploy_log") 2>&1
 
     info "检测到新环境，开始自动部署..."
@@ -327,13 +327,16 @@ start_server() {
     # 清除旧日志信息
     : > "$log_file"
 
+    # 切换目录
+    cd "$DST_ROOT/bin"
+
     # 启动 Master
     info "启动 Master${slot}..."
     screen -dmS "master${slot}" bash -c "$DST_BIN -console -cluster Cluster_${slot} -shard Master | sed 's/^/Master: /' > ${log_file} 2>&1"
 
     # 预热等待
-    info "等待 Master 预热(5s)..."
-    for (( i = 1; i <= 5; i++ )); do
+    info "等待 Master 预热(15s)..."
+    for (( i = 1; i <= 15; i++ )); do
         if ! is_running "master${slot}"; then
             cat "$log_file"
             die "Master 在预热期间意外退出"
@@ -485,7 +488,7 @@ check_status() {
 show_menu() {
     clear
     echo "================================="
-    echo -e "${GREEN}     DST 饥荒服务器管理面板${RESET}"
+    echo -e "${C_GREEN}     DST 饥荒服务器管理面板${C_RESET}"
     echo "================================="
     echo "  1. 初始化存档"
     echo "  2. 启动服务器存档"
@@ -515,18 +518,21 @@ show_menu() {
 # 入口
 # ============================================================
 main() {
-    # 检查系统版本
-    check_os_version
+    if [[ "$(whoami)" != "$TARGET_USER" ]]; then
 
-    # 查看当前用户是否是 root 用户或是否具有 sudo 权限
-    if [[ "$(id -u)" -ne 0 ]]; then
-        if ! command -v sudo &>/dev/null || ! sudo -n true &>/dev/null; then
-            die "请使用 root 用户或具有 sudo 权限的用户执行此脚本"
+        # 检查系统版本
+        check_os_version
+
+        # 查看当前用户是否是 root 或是否具有 sudo 权限
+        if [[ "$(id -u)" -ne 0 ]]; then
+            if ! command -v sudo &>/dev/null || ! sudo -n true &>/dev/null; then
+                die "请使用 root 用户或具有 sudo 权限的用户执行此脚本"
+            fi
         fi
-    fi
 
-    # 创建 charles 用户并赋予 sudo 权限
-    bootstrap_user "$@"
+        # 3. 创建 charles 用户并切换身份
+        bootstrap_user "$@"
+    fi
 
     # 以下均在 charles 用户下执行
     if [[ $# -gt 0 ]]; then
