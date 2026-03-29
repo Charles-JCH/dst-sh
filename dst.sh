@@ -298,6 +298,8 @@ init_cluster() {
         mkdir -p "$KLEI_DIR"
         git clone --depth 1 "$GITHUB_REPO_URL" "$cluster_dir"
         rm -rf "$cluster_dir/.git"
+        rm -rf "$cluster_dir/Master/save"
+        rm -rf "$cluster_dir/Caves/save"
     fi
 
     info "写入 Cluster Token"
