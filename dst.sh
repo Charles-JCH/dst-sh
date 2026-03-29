@@ -22,6 +22,8 @@ readonly GITHUB_REPO_URL="https://github.com/Charles-JCH/dst.git"
 readonly DEFAULT_TOKEN="pds-g^KU_XKeqpZXq^rtM08d2qtiy34ZRzi1P2wTLmrzTK3AcmnnMRePnXDjo="
 readonly DST_PORTS="10888 10999 10998"
 
+readonly SCRIPT_UPDATE_URL="https://raw.githubusercontent.com/Charles-JCH/dst-sh/main/dst.sh"
+
 # ============================================================
 # 颜色 & 日志
 # ============================================================
@@ -34,6 +36,46 @@ info()  { echo -e "${C_GREEN}[$(date '+%F %T')] [INFO ]${C_RESET} $*"; }
 warn()  { echo -e "${C_YELLOW}[$(date '+%F %T')] [WARN ]${C_RESET} $*"; }
 error() { echo -e "${C_RED}[$(date '+%F %T')] [ERROR]${C_RESET} $*" >&2; }
 die()   { error "$*"; exit 1; }
+
+# ============================================================
+# 脚本自更新
+# ============================================================
+auto_update_script() {
+    info "正在检查脚本是否有新版本..."
+    local tmp_file="/tmp/dst_script_update_$$.sh"
+
+    # 尝试下载最新脚本
+    if curl -sL --connect-timeout 3 -m 5 -o "$tmp_file" "$SCRIPT_UPDATE_URL"; then
+
+        # 确保下载下来的不是 404 错误网页
+        if grep -q "^#!/bin/bash" "$tmp_file"; then
+
+            # 对比新老文件内容，只有发生变化时才更新
+            if ! cmp -s "$0" "$tmp_file"; then
+                info "发现新版本，正在自动热更新..."
+
+                # 覆盖当前脚本文件
+                cat "$tmp_file" > "$0"
+                chmod +x "$0"
+                rm -f "$tmp_file"
+
+                info "脚本更新成功！正在重新载入..."
+                # 使用 exec 替换当前进程，携带原有参数重新执行最新版脚本
+                local safe_args
+                safe_args=$(printf '%q ' "$@")
+                exec bash "$0" $safe_args
+            else
+                # 文件一致，已经是最新版
+                rm -f "$tmp_file"
+            fi
+        else
+            warn "获取到的脚本文件不合法，取消更新"
+            rm -f "$tmp_file"
+        fi
+    else
+        warn "连接 GitHub 超时，跳过脚本更新"
+    fi
+}
 
 # ============================================================
 # 系统检测
@@ -521,6 +563,9 @@ show_menu() {
 # ============================================================
 main() {
     if [[ "$(whoami)" != "$TARGET_USER" ]]; then
+
+        # 脚本更新检测
+        auto_update_script "$@"
 
         # 检查系统版本
         check_os_version
