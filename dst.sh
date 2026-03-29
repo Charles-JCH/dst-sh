@@ -373,15 +373,15 @@ stop_server() {
     done
 
     # 发送关机指令
-    screen -S "caves${slot}" -X stuff 'c_shutdown(true)\n'
-    screen -S "master${slot}" -X stuff 'c_shutdown(true)\n'
+    screen -S "caves${slot}" -X stuff 'c_shutdown(true)\n' 2>/dev/null || true
+    screen -S "master${slot}" -X stuff 'c_shutdown(true)\n' 2>/dev/null || true
 
     # 等待进程退出
     info "等待进程退出..."
     local retry=0
     while is_running "master${slot}"; do
         sleep 1
-        (( retry++ ))
+        (( ++retry ))
         if (( retry > 10 )); then
             warn "进程未响应，将强制停止"
             screen -S "caves${slot}" -X quit 2>/dev/null || true
