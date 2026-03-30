@@ -568,7 +568,7 @@ main() {
         # 查看当前用户是否是 root 或是否具有 sudo 权限
         if [[ "$(id -u)" -ne 0 ]]; then
             if ! command -v sudo &>/dev/null || ! sudo -n true &>/dev/null; then
-                die "请配置 sudo 免密码或使用 root 用户登录"
+                die "请配置 sudo 免密或使用 root 用户登录"
             fi
         fi
 
