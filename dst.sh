@@ -47,23 +47,21 @@ auto_update_script() {
     # 尝试下载最新脚本
     if curl -sL --connect-timeout 3 -m 5 -o "$tmp_file" "$SCRIPT_UPDATE_URL"; then
 
-        # 确保下载下来的不是 404 错误网页
-        if grep -q "^#!/bin/bash" "$tmp_file"; then
+        # 校验获取到的脚本文件是否合法
+        if grep -q "^#!/usr/bin/env bash" "$tmp_file"; then
 
             # 对比新老文件内容，只有发生变化时才更新
             if ! cmp -s "$0" "$tmp_file"; then
                 info "发现新版本，正在自动热更新..."
 
                 # 覆盖当前脚本文件
-                cat "$tmp_file" > "$0"
-                chmod +x "$0"
+                cat "$tmp_file" | sudo tee "$0" > /dev/null
+                sudo chmod +x "$0"
                 rm -f "$tmp_file"
 
                 info "脚本更新成功！正在重新载入..."
-                # 使用 exec 替换当前进程，携带原有参数重新执行最新版脚本
-                local safe_args
-                safe_args=$(printf '%q ' "$@")
-                exec bash "$0" $safe_args
+                # 携带原有参数重新执行最新版脚本
+                exec bash "$0" "$@"
             else
                 # 文件一致，已经是最新版
                 rm -f "$tmp_file"
@@ -106,8 +104,8 @@ bootstrap_user() {
     # 创建用户
     if ! id "$TARGET_USER" &>/dev/null; then
         info "创建用户 $TARGET_USER"
-        useradd -m -s /bin/bash "$TARGET_USER"
-        echo "$TARGET_USER:$TARGET_PASS" | chpasswd
+        sudo useradd -m -s /bin/bash "$TARGET_USER"
+        echo "$TARGET_USER:$TARGET_PASS" | sudo chpasswd
     fi
 
     # 配置 sudo 免密
@@ -119,8 +117,8 @@ bootstrap_user() {
             apt-get update -qq
             apt-get install -y sudo
         fi
-        echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > "$sudoers_file"
-        chmod 0440 "$sudoers_file"
+        echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "$sudoers_file" > /dev/null
+        sudo chmod 0440 "$sudoers_file"
     fi
 
     # 复制脚本到 charles 用户目录
@@ -129,15 +127,14 @@ bootstrap_user() {
     local script_path
     script_path=$(realpath "$0")
     local target_script="/home/$TARGET_USER/$script_name"
-    cp "$script_path" "$target_script"
-    chown "$TARGET_USER:$TARGET_USER" "$target_script"
-    chmod +x "$target_script"
+    
+    sudo cp "$script_path" "$target_script"
+    sudo chown "$TARGET_USER:$TARGET_USER" "$target_script"
+    sudo chmod +x "$target_script"
 
     # 切换 charles 用户执行脚本
     info "切换用户 $TARGET_USER 重新执行"
-    local safe_args
-    safe_args=$(printf '%q ' "$@")
-    exec su - "$TARGET_USER" -c "bash $target_script $safe_args"
+    exec sudo -u "$TARGET_USER" bash "$target_script" "$@"
 }
 
 # ============================================================
@@ -155,10 +152,10 @@ configure_firewall() {
         warn "ufw 未启用，如遇连接问题请执行: sudo ufw enable"
     fi
 
-    sudo ufw allow 22/tcp
+    sudo ufw allow 22/tcp >/dev/null
     info "已放行端口 22/tcp"
     for port in $DST_PORTS; do
-        sudo ufw allow "$port/udp"
+        sudo ufw allow "$port/udp" >/dev/null
         info "已放行端口 $port/udp"
     done
 }
@@ -178,7 +175,7 @@ install_steamcmd() {
     for (( i = 1; i <= max_attempts; i++ )); do
         info "下载 SteamCMD ($i/${max_attempts})..."
 
-        # wget -c 支持断点续传，防止每次都从头下
+        # wget -c 支持断点续传
         if wget -c -O "$tmp_file" -qq "$STEAMCMD_TAR_URL"; then
             success=1
             break
@@ -237,7 +234,7 @@ update_dst_with_retry() {
 # ============================================================
 fix_dst_libs() {
     mkdir -p "$DST_ROOT/bin/lib32"
-    cp -f "$DST_ROOT/steamclient.so" "$DST_ROOT/bin/lib32/"
+    cp -f "$DST_ROOT/steamclient.so" "$DST_ROOT/bin/lib32/" || true
 }
 
 # ============================================================
@@ -259,7 +256,7 @@ install_env() {
     # ── 1/3 系统依赖 ──────────────────────────────────────────
     info "[1/3] 安装系统依赖..."
     sudo mkdir -p /etc/needrestart
-    sudo tee /etc/needrestart/needrestart.conf &>/dev/null <<'EOF'
+    sudo tee /etc/needrestart/needrestart.conf >/dev/null <<'EOF'
 $nrconf{restart} = 'a';
 $nrconf{kernelhints} = -1;
 $nrconf{verbosity} = 0;
@@ -350,11 +347,10 @@ init_cluster() {
     info "存档 Cluster_${slot} 初始化完成！"
 }
 
-# 启动服务器存档，start_server [1-5]
+# 启动服务器存档，start_server[1-5]
 start_server() {
     local slot="${1:-1}"
     local log_file="$HOME/cluster${slot}.log"
-    local dst_bin_dir="$DST_ROOT/bin"
     local cluster_dir="$KLEI_DIR/Cluster_${slot}"
 
     # 存档校验
@@ -448,13 +444,13 @@ update_server() {
     local manifest_file="$DST_ROOT/steamapps/appmanifest_343050.acf"
     local local_build_id="0"
     if [[ -f "$manifest_file" ]]; then
-        local_build_id=$(grep -i '"buildid"' "$manifest_file" | grep -oP '"\K[0-9]+(?=")' | head -n 1)
+        local_build_id=$(grep -i '"buildid"' "$manifest_file" | grep -oP '"\K[0-9]+(?=")' | head -n 1 || true)
         local_build_id="${local_build_id:-0}"
     fi
 
     # 获取远程最新 Build ID
     local remote_build_id
-    remote_build_id=$(curl -s --connect-timeout 5 "https://api.steamcmd.net/v1/info/343050" | grep -oP '"public":\s*\{[^}]*\}' | grep -oP '"buildid"\s*:\s*"\K[0-9]+' | head -n 1)
+    remote_build_id=$(curl -s --connect-timeout 5 "https://api.steamcmd.net/v1/info/343050" | grep -oP '"public":\s*\{[^}]*\}' | grep -oP '"buildid"\s*:\s*"\K[0-9]+' | head -n 1 || true)
     remote_build_id="${remote_build_id:-0}"
 
     # 校验远程结果合法性
@@ -507,7 +503,6 @@ delete_server() {
 check_status() {
     local slot="${1:-1}"
     local master_screen="master${slot}"
-    local caves_screen="caves${slot}"
     local status_str=""
 
     # 查看运行状态
@@ -542,7 +537,7 @@ show_menu() {
     echo "  6. 查看存档运行状态"
     echo "  7. 退出"
     echo "---------------------------------"
-    read -rp "请选择 [1-7]: " choice
+    read -rp "请选择[1-7]: " choice
 
     case "$choice" in
         1) init_cluster  ;;
@@ -573,11 +568,11 @@ main() {
         # 查看当前用户是否是 root 或是否具有 sudo 权限
         if [[ "$(id -u)" -ne 0 ]]; then
             if ! command -v sudo &>/dev/null || ! sudo -n true &>/dev/null; then
-                die "请使用 root 用户或具有 sudo 权限的用户执行此脚本"
+                die "请配置 sudo 免密码或使用 root 用户登录"
             fi
         fi
 
-        # 3. 创建 charles 用户并切换身份
+        # 创建 charles 用户并切换身份
         bootstrap_user "$@"
     fi
 
@@ -593,7 +588,7 @@ main() {
             delete) delete_server "${2:-1}" ;;
             status) check_status  "${2:-1}" ;;
             *)
-                echo "用法: $0 [deploy|init|start|stop|update|delete|status] [1-5] [token]"
+                echo "用法: $0[deploy|init|start|stop|update|delete|status] [1-5] [token]"
                 exit 1
                 ;;
         esac
